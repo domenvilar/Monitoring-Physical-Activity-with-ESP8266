@@ -17,8 +17,10 @@ cors = CORS(app, resources={r"*": {"origins": "*"}})
 app.config['CORS_HEADERS'] = 'Content-Type'
 app.config['DATABASE'] = 'database.db'
 
-#model = load('model.joblib') # load the trained model
-
+try:
+    model = load('model.joblib') # load the trained model
+except:
+    print('No model found or model is not trained yet')
 
 # ===================== DATABASE TABLE CREATE =====================
 # Connect to the database
