@@ -1,5 +1,5 @@
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 import statistics as stat
 
 from scipy.signal import find_peaks
@@ -32,7 +32,7 @@ cursor.execute('''
     CREATE TABLE IF NOT EXISTS readings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         activity TEXT NOT NULL,
-        duration INTEGER,
+        duration REAL NOT NULL,
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
 ''')
@@ -124,39 +124,6 @@ def save_to_csv():
 # ======================== PREDICTING ACTIVITY ========================
 # section for predicting the activity and saving the data to a database 
 
-
-# TODO this only saves the data to the database need to make an endpoint that will predict the data first
-# and then save it to the database
-# @app.route('/save-reading', methods=['POST'])
-# @cross_origin()
-# def save_reading():
-#     data = request.get_json()
-
-#     activity = data.get('activity')
-#     duration = data.get('duration')
-
-#     if not activity:
-#         return 'Activity field is required', 400
-
-#     # Connect to the database
-#     conn = sqlite3.connect(app.config['DATABASE'])
-#     cursor = conn.cursor()
-
-#     # Insert data into the table
-#     cursor.execute('''
-#         INSERT INTO readings (activity, duration)
-#         VALUES (?, ?)
-#     ''', (activity, duration))
-
-#     # Commit the changes
-#     conn.commit()
-
-#     # Close the connection
-#     conn.close()
-
-#     return 'Reading saved successfully', 200
-
-
 # this endpoint predicts the activity and saves it to the database
 @app.route('/predict', methods=['POST'])
 @cross_origin()
@@ -167,12 +134,12 @@ def predict_save():
     data = request.get_json() # get data from request body
     features = format_data(data) # this functions does not work yet
 
-    # Perform prediction using the model TODO cast to type of activity?? 
+    # Perform prediction using the model TODO cast to type of activity?? what does the model return?
     activity = model.predict([features])[0]
-    duration = 0 # TODO calculate the duration of the activity or set as static value?
+    duration = 0.25 # TODO calculate the duration of the activity or set as static value?
     
     # Connect to the database
-    conn = sqlite3.connect(app.config['DATABASE'])
+    conn = get_db()
     cursor = conn.cursor()
 
     # Insert data into the table
@@ -203,6 +170,99 @@ def test_database():
         return 'Database connection successful'
     except Exception as e:
         return f'Database connection failed: {str(e)}'
+
+
+# endpoint for getting the last entry from the database if it has been added in the last 10 secondss
+@app.route('/latest-entry')
+@cross_origin()
+def get_latest_entry():
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+
+        # Calculate the timestamp threshold
+        threshold = datetime.now() - timedelta(seconds=10)
+
+        # Query the latest entry within the last 10 seconds
+        cursor.execute('''
+            SELECT *
+            FROM readings
+            WHERE timestamp >= ?
+            ORDER BY timestamp DESC
+            LIMIT 1
+        ''', (threshold,))
+
+        entry = cursor.fetchone()
+
+        if entry:
+            # Convert the timestamp to a string format
+            timestamp_str = entry[2].strftime('%Y-%m-%d %H:%M:%S')
+            # Create a response JSON object
+            response = {
+                'activity': entry[0],
+                'duration': entry[1],
+                'timestamp': timestamp_str
+            }
+            return jsonify(response), 200
+        else:
+            return 'No recent entries found', 404
+
+    except Exception as e:
+        return f'Error retrieving latest entry: {str(e)}', 500
+
+# endpoint for getting the data from the database for the current week
+@app.route('/weekly-data')
+@cross_origin()
+def get_weekly_data():
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+
+        # Get the start and end dates for the current week
+        today = datetime.now().date()
+        start_of_week = today - timedelta(days=today.weekday())
+        end_of_week = start_of_week + timedelta(days=6)
+
+        # Query the data for the current week
+        cursor.execute('''
+            SELECT activity, date(timestamp), SUM(duration)
+            FROM readings
+            WHERE date(timestamp) BETWEEN ? AND ?
+            GROUP BY activity, date(timestamp)
+        ''', (start_of_week, end_of_week))
+
+        activity_data = cursor.fetchall()
+
+        # Calculate distance and calories using the duration and factors
+        factor_distance = 1  # Change this value as needed
+        factor_calories = 1  # Change this value as needed
+
+        data = []
+
+        # Iterate over the activity data and calculate distance and calories
+        for entry in activity_data:
+            activity = entry[0]
+            date = entry[1]
+            duration = entry[2]
+
+            # TODO different factors for different activities (walking, running, cycling)   
+            distance = duration * factor_distance
+            calories = duration * factor_calories
+
+            # Create a dictionary with the activity, date, duration, distance, and calories
+            data.append({
+                'activity': activity,
+                'date': date,
+                'duration': duration,
+                'distance': distance,
+                'calories': calories
+            })
+
+        return jsonify(data), 200
+
+    except Exception as e:
+        return f'Error retrieving weekly data: {str(e)}', 500
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080, debug=True)
