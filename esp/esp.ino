@@ -100,6 +100,7 @@ bool isTracking = false;
 bool isDataCollecting = false;
 
 float duration = 1;
+float read_rate = 0.1;
 
 void MPU9250_init()
 {
@@ -148,12 +149,12 @@ void calibrateGyro()
     gyroY_off /= CAL_NO;
     gyroZ_off /= CAL_NO;
 
-    /* Serial.println("Ziroskop X osa");
+    Serial.println("Ziroskop X osa");
     Serial.println(gyroX_off);
     Serial.println("Ziroskop Y osa");
     Serial.println(gyroY_off);
     Serial.println("Ziroskop Z osa");
-    Serial.println(gyroZ_off); */
+    Serial.println(gyroZ_off);
 }
 
 void readGyro()
@@ -169,12 +170,12 @@ void readGyro()
     // GYRO_ZOUT = Gyro_Sensitivity * Z_angular_rate
     tmp = (((int8_t)gyroMeas[4] << 8) + (uint8_t)gyroMeas[5]);
     gyroZ = tmp * 1.0 / 131.0;
-    /* Serial.print("Gyro X: ");
+    Serial.print("Gyro X: ");
     Serial.print(gyroX);
     Serial.print(" Y: ");
     Serial.print(gyroY);
     Serial.print(" Z: ");
-    Serial.println(gyroZ); */
+    Serial.println(gyroZ);
 
     gyroReadings[gyro_counter % numReadings][0] = gyroX;
     gyroReadings[gyro_counter % numReadings][1] = gyroY;
@@ -250,12 +251,12 @@ void readAcc()
     }
 
     // izpisi meritve na serijsko
-    /* Serial.print("X: ");
+    Serial.print("Acc X: ");
     Serial.print(accX);
     Serial.print(" Y: ");
     Serial.print(accY);
     Serial.print(" Z: ");
-    Serial.println(accZ); */
+    Serial.println(accZ);
 }
 
 // wifi setup
@@ -294,7 +295,8 @@ void setupWiFiAP()
 // Track label variable
 String trackLabel;
 
-const char* serverUrl = "http://192.168.4.2:8080/data"; // Replace with your server URL
+// char* serverUrl = "http://192.168.4.2:8080"; // Replace with your server URL
+const String serverUrl = "http://192.168.4.2:8080";
 
 // Create a flag to indicate if the track label is received
 
@@ -384,9 +386,9 @@ void handleStartTracking()
 {
     Serial.println("Start tracking");
     // Branje gyro senzorja
-    readSensorGyro.attach(1, readGyro);
+    readSensorGyro.attach(read_rate, readGyro);
     // Branje acc senzorja
-    readSensorAcc.attach(1, readAcc);
+    readSensorAcc.attach(read_rate, readAcc);
 }
 
 void handleStopTracking()
@@ -414,9 +416,9 @@ void handleStartCollecting()
         trackLabel = server.arg("label");
         Serial.println("Start collecting data for " + trackLabel);
         // Branje gyro senzorja
-        readSensorGyro.attach(1, readGyro);
+        readSensorGyro.attach(read_rate, readGyro);
         // Branje acc senzorja
-        readSensorAcc.attach(1, readAcc);
+        readSensorAcc.attach(read_rate, readAcc);
         isDataCollecting = true;
     }
 }
@@ -428,9 +430,10 @@ void handleStopCollecting()
     readSensorGyro.detach();
     readSensorAcc.detach();
     isDataCollecting = false;
+    // change the server url to /save-csv endpoint
 
     // Make a PUT request
-    http.begin(client, serverUrl);
+    http.begin(client, serverUrl + "/save-csv");
     // Set the Content-Type header to indicate JSON data
     http.addHeader("Content-Type", "text/plain");
 
@@ -488,7 +491,7 @@ void sendData(char* type)
             obj1["x"] = accReadings[i][0];
             obj1["y"] = accReadings[i][1];
             obj1["z"] = accReadings[i][2];
-            obj1["duration"] = duration;
+            obj1["duration"] = read_rate * numReadings;
             if (isDataCollecting) {
                 obj1["label"] = trackLabel;
             }
@@ -501,7 +504,7 @@ void sendData(char* type)
             obj1["x"] = gyroReadings[i][0];
             obj1["y"] = gyroReadings[i][1];
             obj1["z"] = gyroReadings[i][2];
-            obj1["duration"] = duration;
+            obj1["duration"] = read_rate * numReadings;
             if (isDataCollecting) {
                 obj1["label"] = trackLabel;
             }
@@ -513,7 +516,7 @@ void sendData(char* type)
     Serial.print("serialized json: " + json);
 
     // Make a GET request
-    http.begin(client, serverUrl);
+    http.begin(client, serverUrl + "/data");
     // Set the Content-Type header to indicate JSON data
     http.addHeader("Content-Type", "application/json");
 
@@ -537,7 +540,9 @@ void setup()
     // Serijska komunikacija
     Serial.begin(115200);
     // I2C
+    Wire.begin(12, 14);
     Wire.setClock(100000);
+
     // Podesavanje senzorja
     // https://github.com/bolderflight/mpu9250/blob/main/src/mpu9250.cpp
     MPU9250_init();

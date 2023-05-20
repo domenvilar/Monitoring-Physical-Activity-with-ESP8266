@@ -8,6 +8,7 @@ from scipy.stats import pearsonr
 from flask import Flask, request, jsonify
 from flask_cors import CORS, cross_origin
 from joblib import load
+import logging
 
 import csv
 import sqlite3
@@ -21,6 +22,21 @@ try:
     model = load('model.joblib') # load the trained model
 except:
     print('No model found or model is not trained yet')
+
+
+# Create a custom logging filter
+class EndpointFilter(logging.Filter):
+    def filter(self, record):
+        # Specify the endpoint path for which logging should be suppressed
+        if request.endpoint == 'inform':
+            return False  # Filter out the log message
+        return True  # Allow the log message
+
+# Apply the custom logging filter to the Flask application's logger
+app.logger.addFilter(EndpointFilter())
+
+
+
 
 # ===================== DATABASE TABLE CREATE =====================
 # Connect to the database
@@ -136,7 +152,9 @@ def save_data():
     formated = calculate_average(data, keys[0]) #format the data so that it can be used by the model
 
     #add label to the data
-    formated['label'] = data['label']
+    formated['label'] = data[keys[0]][0]['label'] #add the label to the data
+    #add duration to the data
+    formated['duration'] = data[keys[0]][0]['duration'] #add the duration to the data
 
     #add data to global variable
     app.config[cache].append(formated)
@@ -163,12 +181,13 @@ def save_to_csv():
 
         return 'No data for gyro or acc available', 404
     
+    #get the label from the data
     label = data_acc[0]['label']
 
     # DEBUG 
-    print(f'[DEBUG] Label is: {label}')
-    print(f'[DEBUG] Length of data_acc: {len(data_acc)}')
-    print(f'[DEBUG] Length of data_gyro: {len(data_gyro)}')
+    # print(f'[DEBUG] Label is: {label}')
+    # print(f'[DEBUG] Length of data_acc: {len(data_acc)}')
+    # print(f'[DEBUG] Length of data_gyro: {len(data_gyro)}')
 
     #make sure that the data is the same length
     if len(data_acc) != len(data_gyro):
@@ -179,20 +198,35 @@ def save_to_csv():
             data_acc = data_acc[:len(data_gyro)]
         else:
             data_gyro = data_gyro[:len(data_acc)]
+
+    #combine the data from acc and gyro
+    data = []
+    for dict1, dict2 in zip(data_acc, data_gyro):
+        combined_dict = {**dict1, **dict2}
+        data.append(combined_dict)
+
+    # Combine the data from acc and gyro
+    combined_array = []
+    #for j in 
+    for i in range(10):
+        dict1 = data_acc[i]
+        dict2 = data_gyro[i]
+        dict1.pop('label', None)
+        dict1.pop('duration', None)
+        dict2.pop('label', None)
+        dict2.pop('duration', None)
+        combined_array.extend(list(dict1.values()))
+        combined_array.extend(list(dict2.values()))
+
     
-    data = data_acc + data_gyro  # Merge data from acc and gyro into one list¸
-    #TODO how does this data look like? is it a list of dictionaries? make sure it
-    
-    #DEBUG
-    print(f'[DEBUG] Length of data: {len(data)}')
-    print(f'[DEBUG] Data: {data}')
-    
-    current_date = datetime.datetime.now().strftime('%Y-%m-%d')
-    current_time = datetime.datetime.now().strftime('%H-%M-%S')
+    print(f"[Debug] combined data: {data}")
+
+    current_date = datetime.now().strftime('%Y-%m-%d')
+    current_time = datetime.now().strftime('%H-%M-%S')
     file_name = f'training_data/data_{current_date}_{current_time}_{label}.csv'
     
     with open(file_name, 'w', newline='', encoding='utf-8') as csvfile:
-        fieldnames = data[0].keys() if data else []  # Check if data is not empty
+        fieldnames = list(data[0].keys())
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(data)
@@ -201,6 +235,8 @@ def save_to_csv():
 
 # ======================== PREDICTING ACTIVITY ========================
 # section for predicting the activity and saving the data to a database 
+# TODO 
+
 
 # this endpoint predicts the activity and saves it to the database
 @app.route('/predict', methods=['POST'])
@@ -353,6 +389,11 @@ def get_weekly_data():
     except Exception as e:
         return f'Error retrieving weekly data: {str(e)}', 500
 
+# ======================== TESTING ========================
+# @app.route('/inform')
+# @cross_origin()
+# def inform():
+#     return 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080, debug=True)
