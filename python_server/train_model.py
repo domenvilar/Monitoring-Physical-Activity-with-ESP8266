@@ -6,9 +6,10 @@ import joblib
 
 # Load data from CSV files
 # TODO change this to actual files from the server
-walking_data = pd.read_csv('data_test_Walking.csv')
-running_data = pd.read_csv('data_test_Running.csv')
-cycling_data = pd.read_csv('data_test_Cycling.csv')
+walking_data = pd.read_csv('training_data/data_2023-05-20_22-30-53_Walking.csv')
+running_data = pd.read_csv('training_data/data_2023-05-20_22-38-15_Running.csv')
+cycling_data = pd.read_csv('training_data/data_2023-05-20_22-45-57_Cycling.csv')
+
 
 # Concatenate the datasets into a single DataFrame
 data = pd.concat([walking_data, running_data, cycling_data], ignore_index=True)
@@ -23,6 +24,8 @@ classifier = RandomForestClassifier()
 classifier.fit(X_train, y_train) 
 
 # Make predictions on the test set
+print('Making predictions on the test set...')
+print(X_test)
 y_pred = classifier.predict(X_test)
 
 # Evaluate the accuracy of the classifier
@@ -30,9 +33,10 @@ accuracy = accuracy_score(y_test, y_pred)
 print(f'Accuracy: {accuracy}')
 
 # Save the trained model
-joblib.dump(classifier, 'test_model.joblib')
+joblib.dump(classifier, 'model.joblib')
 
-print('Trained model saved as test_model.joblib')
+print('Trained model saved as model.joblib')
 
 #print one prediction
-print(classifier.predict([[0.0, 0.0, 0.0, 0.0, 0.0,0.0, 0.0, 0.0, 0.0, 0.0,0.0, 0.0, 0.0, 0.0, 0.0,0.0, 0.0, 0.0, 0.0, 0.0,0.0, 0.0, 0.0, 0.0, 0.0,0.0, 0.0, 0.0, 0.0, 0.0]]))
+print(classifier.predict(X_test[0]))
+# print(y_test.iloc[[0]])

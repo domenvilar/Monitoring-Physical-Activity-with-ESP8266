@@ -1,17 +1,12 @@
-import math
 from datetime import datetime, timedelta
-import statistics as stat
-
-from scipy.signal import find_peaks
-from scipy.stats import pearsonr
-
 from flask import Flask, request, jsonify
 from flask_cors import CORS, cross_origin
 from joblib import load
 import logging
-
 import csv
 import sqlite3
+import pandas as pd
+import math
 
 app = Flask(__name__)
 cors = CORS(app, resources={r"*": {"origins": "*"}})
@@ -161,6 +156,63 @@ def merge_acc_gyro(acc_data, gyro_data):
     
     return data_combined
 
+
+def merge_10rows_tracking(data):
+
+
+    # make sure the data length is divisible by 10 
+    # (so that we can merge 10 dictionaries into 1)
+    data = data[:len(data) - (len(data) % 10)]
+
+    # rename the keys in the dictionary add 1-10 to the end of each key name
+    renamed_data = []
+    index = 0
+    for item in data:
+        renamed_item = {}
+        if index > 9:
+            index = 0
+        for key, value in item.items():
+            new_key = f'{key}_{index}'  # Add the index to the key name
+            renamed_item[new_key] = value
+        index += 1
+        renamed_data.append(renamed_item)
+
+    #merge the data into batches of 10 (keys that have 1-10 go in the same batch)
+    merged_data = []
+    batch_size = 10
+    for i in range(0, len(renamed_data), batch_size):
+        batch = renamed_data[i:i+batch_size]
+        merged_dict = {}
+        for item in batch:
+            merged_dict.update(item)
+        merged_data.append(merged_dict)
+
+    return merged_data
+
+
+#merge the acc and gyro data into one dictionary 1 row is 10 rows of acc and gyro data
+def merge_acc_gyro_track(acc_data, gyro_data):
+
+    #get rid of duration
+    for diction in acc_data:
+        diction.pop('duration')
+    for diction in gyro_data:
+        diction.pop('duration')
+
+
+    merged_data_acc = merge_10rows_tracking(acc_data)
+    merged_data_gyro = merge_10rows_tracking(gyro_data)
+
+    data_combined = []
+
+    for entry in zip(merged_data_acc, merged_data_gyro):
+        data_combined.append(dict(entry[0], **entry[1]))
+
+    return data_combined
+
+
+
+
 #helper function to test the database connection
 def get_db():
     conn = sqlite3.connect(app.config['DATABASE'])
@@ -184,15 +236,15 @@ def hello_world():
 app.config['DATA_ACC'] = []     # global variable to store the data temporarily
 app.config['DATA_GYRO'] = []     # global variable to store the data temporarily
 
-# this endpoint should be called when tracking is active(TRACK button) the data and the label are sent by ESP board 
-# (hoja: 0 , tek: 1 , kolo: 2)?
+# this endpoint should be called when collection is active the data and the label are sent by ESP board 
 @app.route('/data', methods=['POST'])
 @cross_origin()
 def save_collection_data():
 
     # get the data from the request
-    data = request.get_json() #maybe only gate data and the label here?
-    keys = list(data) #should be acc or gyro and label (Walking, Running, Cycling)
+    data = request.get_json() 
+    keys = list(data) #should be acc or gyro 
+
 
     #check if the data is valid
     if keys[0] == 'acc': 
@@ -202,14 +254,14 @@ def save_collection_data():
     else:
         # errror 
         print(f"Data type error, key {keys} not supoorted")
-        return 'Data type error', 500
+        return jsonify('Data type error'), 500
     
     #format the data (avg 10 samples)
     formated = calculate_average(data, keys[0]) #format the data so that it can be used by the model
 
     #add label to the data
     formated['label'] = data[keys[0]][0]['label'] #add the label to the data
-    
+
     #duration data is not needed for the model
 
     #add data to global variable
@@ -220,26 +272,32 @@ def save_collection_data():
     # print(f"[DEBUG] Raw data {data}")
     # print(f"[DEBUG] formated data: {formated}")
 
-    return 'Data saved successfully', 200
+    return jsonify('Data bufferd successfully'), 200
 
-# this endpoint should be called when the training process is finished (STOP button)
+# this endpoint should be called when the collecting process is finished (STOP button)
 # the data that has been sent so far will be saved to a single csv file
 @app.route('/save-csv', methods=['PUT'])
 @cross_origin()
 def save_to_csv():
     data_acc = app.config['DATA_ACC']
     data_gyro = app.config['DATA_GYRO']
+
+    # empty the global variables
+    app.config['DATA_ACC'] = []
+    app.config['DATA_GYRO'] = []
     
     #check that there is some data avaliable to save
-    if len(data_acc) == 0 or len(data_gyro) == 0:
+    if len(data_acc) < 10 or len(data_gyro) < 10:
         print("ERROR: No data for gyro or acc available:")
         print(f'[DEBUG] Length of data_acc: {len(data_acc)}')
         print(f'[DEBUG] Length of data_gyro: {len(data_gyro)}')
 
-        return 'No data for gyro or acc available', 404
+        return jsonify('No data for gyro or acc available'), 404
     
+    # print(f'one row is: {data_acc[0]}')
     #get the label from the data
     label = data_acc[0]['label']
+    #print(f'[DEBUG] Label is: {label}')
 
     # DEBUG 
     # print(f'[DEBUG] Label is: {label}')
@@ -248,8 +306,8 @@ def save_to_csv():
 
     #make sure that the data is the same length
     if len(data_acc) != len(data_gyro):
-        print(f'[DEBUG] Length of data_acc: {len(data_acc)}')
-        print(f'[DEBUG] Length of data_gyro: {len(data_gyro)}')
+        # print(f'[DEBUG] Length of data_acc: {len(data_acc)}')
+        # print(f'[DEBUG] Length of data_gyro: {len(data_gyro)}')
         #make the longer list the same length as the shorter one
         if len(data_acc) > len(data_gyro):
             data_acc = data_acc[:len(data_gyro)]
@@ -259,7 +317,7 @@ def save_to_csv():
     #combine the data from acc and gyro
     data = merge_acc_gyro(data_acc, data_gyro)
     
-    print(f"[Debug] combined data: {data}")
+    # print(f"[Debug] combined data: {data}")
 
     current_date = datetime.now().strftime('%Y-%m-%d')
     current_time = datetime.now().strftime('%H-%M-%S')
@@ -271,12 +329,17 @@ def save_to_csv():
         writer.writeheader()
         writer.writerows(data)
 
-    return f'Data saved to {file_name}', 200
+    return jsonify(f'Data saved to {file_name}'), 200
 
 # ======================== PREDICTING ACTIVITY ========================
 # section for predicting the activity and saving the data to a database 
 
 # PAZI ker združuješ podatke 10 vrstic v 1 moraš seštet duration tko da bo duration na konc 10
+@app.route('/track-data')
+@cross_origin()
+def track_data_show():
+    # return the temporary array of data 
+    return jsonify("DEBUG: Server reachable", app.config['DATA_ACC_TRACK'], app.config['DATA_GYRO_TRACK']), 200
 
 app.config['DATA_ACC_TRACK'] = []     # global variable to store the data temporarily
 app.config['DATA_GYRO_TRACK'] = []     # global variable to store the data temporarily
@@ -288,8 +351,8 @@ app.config['DATA_GYRO_TRACK'] = []     # global variable to store the data tempo
 def save_tracking_data():
 
     # get the data from the request
-    data = request.get_json() #maybe only gate data and the label here?
-    keys = list(data) #should be acc or gyro and duration (1)
+    data = request.get_json() 
+    keys = list(data) #should be acc or gyro
 
     #check if the data is valid
     if keys[0] == 'acc': 
@@ -299,12 +362,12 @@ def save_tracking_data():
     else:
         # errror 
         print(f"Data type error, key {keys} not supoorted")
-        return 'Data type error', 500
+        return jsonify('Data type error'), 500
     
     #avrage the 10 samples you recived from ESP board
     formated = calculate_average(data, keys[0]) #format the data so that it can be used by the model
 
-    #add duration to the data should be 1 second (10 samples)
+    #add duration to the data
     formated['duration'] = data[keys[0]][0]['duration'] #add the label to the data
     
     #add data to global variable
@@ -315,28 +378,21 @@ def save_tracking_data():
     # print(f"[DEBUG] Raw data {data}")
     # print(f"[DEBUG] formated data: {formated}")
 
-    return 'Data saved successfully', 200
+    return jsonify('Data saved successfully'), 200
 
-
-first_falg = True
 last_activity = "Unknown"
-#TODO test this endpoint
 # this endpoint predicts the activity and saves it to the database
-@app.route('/predict', methods=['POST'])
+@app.route('/predict', methods=['GET'])
 @cross_origin()
 def predict_save():
     global model 
-    
+    global last_activity
     #check if there is enough data to predict the activity
     if len(app.config['DATA_ACC_TRACK']) < 10 or len(app.config['DATA_GYRO_TRACK']) < 10:
-        #if not return unknown activity
-        if (first_falg): 
-            print(f"[DEBUG] Not enough data to predict the activity")
-            first_falg = False
-            return jsonify({'activity_type': "Unknown"}), 200
-        else:
-            print(f"[DEBUG] Not enough data returning last activity: {last_activity}")
-            return jsonify({'activity_type': {last_activity}}), 200 
+        #if not return unknown/latest activity
+        print(f"[DEBUG] Not enough data... returning last activity: {last_activity}")
+        
+        return jsonify({'activity_type': last_activity}), 200 
     
     #TODO how to return this so that the ESP board knows the activity
 
@@ -349,16 +405,23 @@ def predict_save():
     app.config['DATA_ACC_TRACK'] = app.config['DATA_ACC_TRACK'][10:]
     app.config['DATA_GYRO_TRACK'] = app.config['DATA_GYRO_TRACK'][10:]
 
-    #combine the data from acc and gyro
-    data = merge_acc_gyro(data_acc, data_gyro)
+    duration_one = data_acc[0]['duration'] #get the duration of the activity
 
+    #combine the data from acc and gyro
+    data = merge_acc_gyro_track(data_acc, data_gyro)
+    
+    
+    # print(f"[DEBUG] combined data: {data}")
+    # print(f"[DEBUG] len of combined data: {len(data[0])}")
+    # convert the data to a dataframe
+    data = pd.DataFrame(data)
     #predict the activity
     prediction = model.predict(data)
-    last_activity = prediction
 
-    #get the duration of the activity 
-    duration = 10 
+    #print(f"[DEBUG] prediction: {prediction[0]}")
+    last_activity = prediction[0]
 
+    duration = duration_one * 10
     #save the prediction to the database
     # Connect to the database
     conn = get_db()
@@ -368,7 +431,7 @@ def predict_save():
     cursor.execute('''
         INSERT INTO readings (activity, duration)
         VALUES (?, ?)
-    ''', (prediction, duration))
+    ''', (prediction[0], duration))
     # Timestapm is added automatically (curent time)
     
     # Commit the changes
@@ -376,8 +439,10 @@ def predict_save():
     # Close the connection
     conn.close()
 
+    # print(f"[DEBUG] AFTER SAVING TO DATABASE: {prediction[0]}")
+
     #TODO how to return this so that the ESP board knows the activity?
-    return jsonify({'activity_type': prediction}), 200
+    return jsonify({'activity_type': prediction[0]}), 200
 
 # ======================== GETTING DATA FROM DATABASE ========================
 
@@ -388,11 +453,33 @@ def test_database():
     try:
         conn = get_db()
         conn.execute('SELECT 1')
-        return 'Database connection successful'
+        return jsonify('Database connection successful'), 200
     except Exception as e:
-        return f'Database connection failed: {str(e)}'
+        return jsonify(f'Database connection failed: {str(e)}'), 500
 
-# TODO test this endpoint
+# endpoint for getting all the data from the database
+@app.route('/get-data')
+@cross_origin()
+def get_data():
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+
+        # Query all the data from the table
+        cursor.execute('''
+            SELECT *
+            FROM readings
+        ''')
+
+        # Fetch all the data
+        data = cursor.fetchall()
+
+        print(f"[DEBUG] data from database: {data}")
+        return jsonify(data), 200
+    except Exception as e:
+        return jsonify(f'Failed to get data from the database: {str(e)}'), 500
+
+# TODO test this endpoint 
 # endpoint for getting the last entry from the database if it has been added in the last 10 seconds
 @app.route('/latest-entry')
 @cross_origin()
@@ -417,19 +504,20 @@ def get_latest_entry():
 
         if entry:
             # Convert the timestamp to a string format
-            timestamp_str = entry[2].strftime('%Y-%m-%d %H:%M:%S')
+            # timestamp_str = entry[2].strftime('%Y-%m-%d %H:%M:%S')
             # Create a response JSON object
             response = {
                 'activity': entry[0],
                 'duration': entry[1],
-                'timestamp': timestamp_str
+                'timestamp':entry[2]
             }
+            
             return jsonify(response), 200
         else:
             return 'No recent entries found', 404
 
     except Exception as e:
-        return f'Error retrieving latest entry: {str(e)}', 500
+        return jsonify(f'Error retrieving latest entry: {str(e)}'), 500
 
 # TODO test this endpoint
 # endpoint for getting the data from the database for the current week
@@ -453,20 +541,15 @@ def get_weekly_data():
             GROUP BY activity, date(timestamp)
         ''', (start_of_week, end_of_week))
 
-        activity_data = cursor.fetchall()
+        # Fetch all the data
+        activity_data = cursor.fetchall() # [(id, activity, date, duration), ...] ???
 
-        # Calculate distance and calories using the duration and factors
-        factor_distance = 1  # Change this value as needed
-        factor_calories = 1  # Change this value as needed
-
-        data = []
-
+        # aggregate data for each day (mon, tus, wed, thu, fri, sat, sun)
+        chart_data = {}
         # Iterate over the activity data and calculate distance and calories
-        for entry in activity_data:
-            activity = entry[0]
-            date = entry[1]
-            duration = entry[2]
-
+        for activity, date, duration in activity_data:
+            
+            # set the factors for each activity
             if activity == 'Walking':
                 factor_distance = 1.36   # kao da je 1.36m/s
                 factor_calories = 0.0644 # kao je 232 kcal/h
@@ -476,22 +559,26 @@ def get_weekly_data():
             elif activity == 'Cycling':
                 factor_distance = 8.04 # kao da je 8.04m/s
                 factor_calories = 0.24 # kao da je 888 kcal/h
+            else:
+                factor_distance = 0
+                factor_calories = 0
+            
+            activity = activity.lower()
+            date = datetime.strptime(date, '%Y-%m-%d').date()
+            day = date.strftime('%A')
+            
+            if day not in chart_data:
+                chart_data[day] = {}
+            if activity not in chart_data[day]:
+                chart_data[day][activity] = {}
+            
+            chart_data[day][activity]['minutes'] = math.ceil(duration/60)
+            chart_data[day][activity]['calories'] = int(duration * factor_calories)
+            chart_data[day][activity]['distance'] = int(duration * factor_distance)
 
-            #duration is in seconds? 
-            distance = duration * factor_distance # v metrih? 
-            calories = duration * factor_calories # v kcal?
-
-            # Create a dictionary with the activity, date, duration, distance, and calories
-            data.append({
-                'activity': activity,
-                'date': date,
-                'duration': duration,
-                'distance': distance,
-                'calories': calories
-            })
-        return jsonify(data), 200
+        return jsonify(chart_data), 200
     except Exception as e:
-        return f'Error retrieving weekly data: {str(e)}', 500
+        return jsonify(f'Error retrieving weekly data: {str(e)}'), 500
 
 # ======================== TESTING ========================
 # @app.route('/inform')

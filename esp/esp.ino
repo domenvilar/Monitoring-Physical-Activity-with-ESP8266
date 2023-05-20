@@ -99,8 +99,8 @@ enum State {
 bool isTracking = false;
 bool isDataCollecting = false;
 
-float duration = 1;
-float read_rate = 0.1;
+float duration = 0.5;
+float read_rate = 0.05;
 
 void MPU9250_init()
 {
@@ -170,12 +170,12 @@ void readGyro()
     // GYRO_ZOUT = Gyro_Sensitivity * Z_angular_rate
     tmp = (((int8_t)gyroMeas[4] << 8) + (uint8_t)gyroMeas[5]);
     gyroZ = tmp * 1.0 / 131.0;
-    Serial.print("Gyro X: ");
+    /* Serial.print("Gyro X: ");
     Serial.print(gyroX);
     Serial.print(" Y: ");
     Serial.print(gyroY);
     Serial.print(" Z: ");
-    Serial.println(gyroZ);
+    Serial.println(gyroZ); */
 
     gyroReadings[gyro_counter % numReadings][0] = gyroX;
     gyroReadings[gyro_counter % numReadings][1] = gyroY;
@@ -251,12 +251,12 @@ void readAcc()
     }
 
     // izpisi meritve na serijsko
-    Serial.print("Acc X: ");
+    /* Serial.print("Acc X: ");
     Serial.print(accX);
     Serial.print(" Y: ");
     Serial.print(accY);
     Serial.print(" Z: ");
-    Serial.println(accZ);
+    Serial.println(accZ); */
 }
 
 // wifi setup
@@ -382,6 +382,57 @@ void handleTrack()
     server.send(200, "text/html", htmlPage);
 }
 
+void handleHistory()
+{
+
+    /* DynamicJsonDocument doc(1024);
+
+    // Add data for each day and sport
+    doc["mon"]["running"]["minutes"] = 100;
+    doc["mon"]["running"]["calories"] = 500;
+    doc["mon"]["running"]["distance"] = 1000;
+
+    doc["mon"]["cycling"]["minutes"] = 100;
+    doc["mon"]["cycling"]["calories"] = 500;
+    doc["mon"]["cycling"]["distance"] = 1000;
+
+    doc["mon"]["walking"]["minutes"] = 100;
+    doc["mon"]["walking"]["calories"] = 500;
+    doc["mon"]["walking"]["distance"] = 1000;
+
+    doc["tue"]["running"]["minutes"] = 100;
+    doc["tue"]["running"]["calories"] = 500;
+    doc["tue"]["running"]["distance"] = 1000;
+
+    doc["tue"]["cycling"]["minutes"] = 100;
+    doc["tue"]["cycling"]["calories"] = 500;
+    doc["tue"]["cycling"]["distance"] = 1000;
+
+    doc["tue"]["walking"]["minutes"] = 100;
+    doc["tue"]["walking"]["calories"] = 500;
+    doc["tue"]["walking"]["distance"] = 1000;
+
+    String json;
+    serializeJson(doc, json); */
+
+    // Make a GET request
+    http.begin(client, serverUrl + "/weekly-data");
+    int httpResponseCode = http.GET();
+
+    if (httpResponseCode == 200) {
+        String jsonResponse = http.getString();
+        Serial.println(jsonResponse);
+        String htmlPage = "<!DOCTYPE html> <html> <script src='https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.5.0/Chart.min.js'></script> <body> <div style='display: flex; justify-content: space-between; max-width: 1200px; margin-bottom: 20px;'> <canvas id='minutesChart' style='width: 400px;'></canvas> <canvas id='caloriesChart' style='width: 400px;'></canvas> <canvas id='distanceChart' style='width: 400px;'></canvas> </div> <script> var data = " + jsonResponse + "; var days = Object.keys(data); var sports = Object.keys(data[days[0]]); var barColors = ['red', 'green', 'blue']; var minutesData = sports.map(function(sport) { return days.map(function(day) { return data[day][sport].minutes; }); }); var caloriesData = sports.map(function(sport) { return days.map(function(day) { return data[day][sport].calories; }); }); var distanceData = sports.map(function(sport) { return days.map(function(day) { return data[day][sport].distance; }); }); new Chart('minutesChart', { type: 'bar', data: { labels: days, datasets: sports.map(function(sport, index) { return { label: sport, backgroundColor: barColors[index], data: minutesData[index] }; }) }, options: { title: { display: true, text: 'Activity Minutes by Sport' }, scales: { yAxes: [{ ticks: { beginAtZero: true } }] } } }); new Chart('caloriesChart', { type: 'bar', data: { labels: days, datasets: sports.map(function(sport, index) { return { label: sport, backgroundColor: barColors[index], data: caloriesData[index] }; }) }, options: { title: { display: true, text: 'Calories Burned by Sport' }, scales: { yAxes: [{ ticks: { beginAtZero: true } }] } } }); new Chart('distanceChart', { type: 'bar', data: { labels: days, datasets: sports.map(function(sport, index) { return { label: sport, backgroundColor: barColors[index], data: distanceData[index] }; }) }, options: { title: { display: true, text: 'Distance Covered by Sport' }, scales: { yAxes: [{ ticks: { beginAtZero: true } }] } } }); </script> </body> </html>";
+        // String htmlPage = "<!DOCTYPE html> <html> <script src='https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.5.0/Chart.min.js'></script> <body> <div style='max-width: 1200px; margin-bottom: 20px;'> <canvas id='minutesChart' style='width: 100%;'></canvas> </div> <div style='max-width: 1200px; margin-bottom: 20px;'> <canvas id='caloriesChart' style='width: 100%;'></canvas> </div> <div style='max-width: 1200px; margin-bottom: 20px;'> <canvas id='distanceChart' style='width: 100%;'></canvas> </div> <script> var data = " + jsonResponse + "; var days = Object.keys(data); var sports = Object.keys(data[days[0]]); var barColors = ['red', 'green', 'blue']; // Prepare data for each sport var minutesData = sports.map(function(sport) { return days.map(function(day) { return data[day][sport].minutes; }); }); var caloriesData = sports.map(function(sport) { return days.map(function(day) { return data[day][sport].calories; }); }); var distanceData = sports.map(function(sport) { return days.map(function(day) { return data[day][sport].distance; }); }); new Chart('minutesChart', { type: 'bar', data: { labels: days, datasets: sports.map(function(sport, index) { return { label: sport, backgroundColor: barColors[index], data: minutesData[index] }; }) }, options: { title: { display: true, text: 'Activity Minutes by Sport' }, scales: { yAxes: [{ ticks: { beginAtZero: true } }] } } }); new Chart('caloriesChart', { type: 'bar', data: { labels: days, datasets: sports.map(function(sport, index) { return { label: sport, backgroundColor: barColors[index], data: caloriesData[index] }; }) }, options: { title: { display: true, text: 'Calories Burned by Sport' }, scales: { yAxes: [{ ticks: { beginAtZero: true } }] } } }); // Create distance chart new Chart('distanceChart', { type: 'bar', data: { labels: days, datasets: sports.map(function(sport, index) { return { label: sport, backgroundColor: barColors[index], data: distanceData[index] }; }) }, options: { title: { display: true, text: 'Distance Covered by Sport' }, scales: { yAxes: [{ ticks: { beginAtZero: true } }] } } }); </script> </body> </html>";
+        server.send(200, "text/html", htmlPage);
+    } else {
+        server.send(500, "text/plain", "Error retrieving last activity");
+    }
+
+    // End the HTTP connection
+    http.end();
+}
+
 void handleStartTracking()
 {
     Serial.println("Start tracking");
@@ -400,13 +451,27 @@ void handleStopTracking()
 
 void handleLastActivity()
 {
-    DynamicJsonDocument doc(128);
-    doc["activity_type"] = "running";
+    // DynamicJsonDocument doc(128);
+    // doc["activity_type"] = "running";
+    // String json;
+    // serializeJson(doc, json);
 
-    String json;
-    serializeJson(doc, json);
+    // server.send(200, "application/json", json);
 
-    server.send(200, "application/json", json);
+    // Make a GET request
+    http.begin(client, serverUrl + "/predict");
+    int httpResponseCode = http.GET();
+
+    if (httpResponseCode == 200) {
+        String jsonResponse = http.getString();
+        server.sendHeader("Content-Type", "application/json");
+        server.send(200, "application/json", jsonResponse);
+    } else {
+        server.send(500, "text/plain", "Error retrieving last activity");
+    }
+
+    // End the HTTP connection
+    http.end();
 }
 
 void handleStartCollecting()
@@ -467,13 +532,14 @@ void setupWebServer()
     server.on("/stop-tracking", handleStopTracking);
     server.on("/start-collecting", handleStartCollecting);
     server.on("/stop-collecting", handleStopCollecting);
+    server.on("/history", handleHistory);
 
     // Start the server
     server.begin();
 }
 
 // compute the required size
-const size_t CAPACITY = JSON_ARRAY_SIZE(numReadings) + numReadings * JSON_OBJECT_SIZE(3) + 512; // add buffer for the JSON document
+const size_t CAPACITY = JSON_ARRAY_SIZE(numReadings) + numReadings * JSON_OBJECT_SIZE(3) + 1024; // add buffer for the JSON document
 void sendData(char* type)
 {
     // Serial.println("Sending data to server...");
@@ -516,7 +582,11 @@ void sendData(char* type)
     Serial.print("serialized json: " + json);
 
     // Make a GET request
-    http.begin(client, serverUrl + "/data");
+    if (isDataCollecting) {
+        http.begin(client, serverUrl + "/data");
+    } else {
+        http.begin(client, serverUrl + "/tracking");
+    }
     // Set the Content-Type header to indicate JSON data
     http.addHeader("Content-Type", "application/json");
 
