@@ -5,16 +5,10 @@ from sklearn.metrics import accuracy_score
 import joblib
 
 # Load data from CSV files
-walking_data = pd.read_csv('walking_data.csv')
-running_data = pd.read_csv('running_data.csv')
-cycling_data = pd.read_csv('cycling_data.csv')
-
-# # Assign labels to the datasets
-# walking_data['label'] = 'walking'
-# running_data['label'] = 'running'
-# cycling_data['label'] = 'cycling'
-# TODO will the lable be in the data sent by the client? if so no need to add it here 
-# maybe replace lables with numbers? 0,1,2?s
+# TODO change this to actual files from the server
+walking_data = pd.read_csv('data_test_Walking.csv')
+running_data = pd.read_csv('data_test_Running.csv')
+cycling_data = pd.read_csv('data_test_Cycling.csv')
 
 # Concatenate the datasets into a single DataFrame
 data = pd.concat([walking_data, running_data, cycling_data], ignore_index=True)
@@ -36,6 +30,9 @@ accuracy = accuracy_score(y_test, y_pred)
 print(f'Accuracy: {accuracy}')
 
 # Save the trained model
-joblib.dump(classifier, 'model.joblib')
+joblib.dump(classifier, 'test_model.joblib')
 
-print('Trained model saved as model.joblib')
+print('Trained model saved as test_model.joblib')
+
+#print one prediction
+print(classifier.predict([[0.0, 0.0, 0.0, 0.0, 0.0,0.0, 0.0, 0.0, 0.0, 0.0,0.0, 0.0, 0.0, 0.0, 0.0,0.0, 0.0, 0.0, 0.0, 0.0,0.0, 0.0, 0.0, 0.0, 0.0,0.0, 0.0, 0.0, 0.0, 0.0]]))
