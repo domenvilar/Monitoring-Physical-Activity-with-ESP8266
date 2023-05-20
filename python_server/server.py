@@ -53,7 +53,6 @@ types = {
     2: "Cycling"
 }
 
-
 def calculate_average(data, data_type):
     
     if data_type == 'acc':
@@ -69,8 +68,8 @@ def calculate_average(data, data_type):
 
     # Extract the acceleration or gyro values from the data
     data_entries = data[data_type]
-    # print(f"data key is: {data_type}")
-    # print(f"data: {data_entries}")
+    # print(f"[DEBUG] data key is: {data_type}")
+    # print(f"[DEBUG] data: {data_entries}")
     for entry in data_entries:
         acc_x_values.append(entry['x'])
         acc_y_values.append(entry['y'])
@@ -90,7 +89,6 @@ def calculate_average(data, data_type):
 
     return average_data
 
-
 #helper function to test the database connection
 def get_db():
     conn = sqlite3.connect(app.config['DATABASE'])
@@ -104,7 +102,7 @@ def get_db():
 @cross_origin()
 def hello_world():
     # return the temporary array of data 
-    return jsonify(app.config['DATA_ACC'], app.config['DATA_GYRO']), 200
+    return jsonify("DEBUG: Server reachable", app.config['DATA_ACC'], app.config['DATA_GYRO']), 200
 
 
 # ===================== COLECTING DATA =====================
@@ -124,7 +122,7 @@ def save_data():
     data = request.get_json() #maybe only gate data and the label here?
     keys = list(data) #should be acc or gyro and label (Walking, Running, Cycling)
 
-    cache = ""
+    #check if the data is valid
     if keys[0] == 'acc': 
         cache = 'DATA_ACC'
     elif keys[0] == 'gyro': 
@@ -137,42 +135,45 @@ def save_data():
     #format the data (avg 10 samples)
     formated = calculate_average(data, keys[0]) #format the data so that it can be used by the model
 
+    #add label to the data
+    formated['label'] = data['label']
+
     #add data to global variable
     app.config[cache].append(formated)
 
     #print DEBUG
-    # print(f"data type: {key}")
-    # print(f"Raw data {data}")
-    # print(f"formated data: {formated}")
+    # print(f"[DEBUG] data type: {key}")
+    # print(f"[DEBUG] Raw data {data}")
+    # print(f"[DEBUG] formated data: {formated}")
 
     return 'Data saved successfully', 200
 
 # this endpoint should be called when the training process is finished (STOP button)
-# the data that has been sent do far will be saved to a single csv file 
+# the data that has been sent so far will be saved to a single csv file
 @app.route('/save-csv', methods=['PUT'])
 @cross_origin()
 def save_to_csv():
     data_acc = app.config['DATA_ACC']
     data_gyro = app.config['DATA_GYRO']
+    
     if len(data_acc) == 0 or len(data_gyro) == 0:
-        print(f'Length of data_acc: {len(data_acc)}')
-        print(f'Length of data_gyro: {len(data_gyro)}')
+        print("ERROR: No data for gyro or acc available:")
+        print(f'[DEBUG] Length of data_acc: {len(data_acc)}')
+        print(f'[DEBUG] Length of data_gyro: {len(data_gyro)}')
 
         return 'No data for gyro or acc available', 404
-
-    current_date = datetime.datetime.now().strftime('%Y-%m-%d')
-    current_time = datetime.datetime.now().strftime('%H-%M-%S')
+    
     label = data_acc[0]['label']
 
     # DEBUG 
-    print(f'Label is: {label}')
-    print(f'Length of data_acc: {len(data_acc)}')
-    print(f'Length of data_gyro: {len(data_gyro)}')
+    print(f'[DEBUG] Label is: {label}')
+    print(f'[DEBUG] Length of data_acc: {len(data_acc)}')
+    print(f'[DEBUG] Length of data_gyro: {len(data_gyro)}')
 
     #make sure that the data is the same length
     if len(data_acc) != len(data_gyro):
-        print(f'Length of data_acc: {len(data_acc)}')
-        print(f'Length of data_gyro: {len(data_gyro)}')
+        print(f'[DEBUG] Length of data_acc: {len(data_acc)}')
+        print(f'[DEBUG] Length of data_gyro: {len(data_gyro)}')
         #make the longer list the same length as the shorter one
         if len(data_acc) > len(data_gyro):
             data_acc = data_acc[:len(data_gyro)]
@@ -182,9 +183,14 @@ def save_to_csv():
     data = data_acc + data_gyro  # Merge data from acc and gyro into one list¸
     #TODO how does this data look like? is it a list of dictionaries? make sure it
     
+    #DEBUG
+    print(f'[DEBUG] Length of data: {len(data)}')
+    print(f'[DEBUG] Data: {data}')
     
-    file_name = f'data_{current_date}_{current_time}_{label}.csv'
-
+    current_date = datetime.datetime.now().strftime('%Y-%m-%d')
+    current_time = datetime.datetime.now().strftime('%H-%M-%S')
+    file_name = f'training_data/data_{current_date}_{current_time}_{label}.csv'
+    
     with open(file_name, 'w', newline='', encoding='utf-8') as csvfile:
         fieldnames = data[0].keys() if data else []  # Check if data is not empty
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -192,6 +198,7 @@ def save_to_csv():
         writer.writerows(data)
 
     return f'Data saved to {file_name}', 200
+
 # ======================== PREDICTING ACTIVITY ========================
 # section for predicting the activity and saving the data to a database 
 
@@ -203,14 +210,15 @@ def predict_save():
     
     # get the data from the request
     data = request.get_json() #maybe only gate data and the label here?
-    keys = list(data) #should only be acc or gyro no lable here 
+    keys = list(data) #should only be acc or gyro and duration
     
     #DEBUG 
-    print(f"Raw data {data}")
+    print(f"[DEBUG] Raw data {data}")
+    print(f"[DEBUG] Keys: {keys}") 
 
     if keys[0] != 'acc' and keys[0] != 'gyro':
         # errror 
-        print(f"Data type error, key {keys} not supoorted")
+        print(f"[DEBUG] Data type error, key {keys[0]} not supoorted")
         return 'Data type error', 500
     
     #format the data (avg 10 samples)
