@@ -268,6 +268,10 @@ const char AP_WiFiAPPSK[] = "geslo123";
 // WiFiServer server(80);
 ESP8266WebServer server(80);
 
+// Initialize the HTTPClient object
+HTTPClient http;
+WiFiClient client;
+
 void setupWiFiAP()
 {
     WiFi.mode(WIFI_AP);
@@ -289,6 +293,8 @@ void setupWiFiAP()
 
 // Track label variable
 String trackLabel;
+
+const char* serverUrl = "http://192.168.4.2:8080/data"; // Replace with your server URL
 
 // Create a flag to indicate if the track label is received
 
@@ -377,13 +383,17 @@ void handleTrack()
 void handleStartTracking()
 {
     Serial.println("Start tracking");
-    isTracking = true;
+    // Branje gyro senzorja
+    readSensorGyro.attach(1, readGyro);
+    // Branje acc senzorja
+    readSensorAcc.attach(1, readAcc);
 }
 
 void handleStopTracking()
 {
     Serial.println("Stop tracking");
-    isTracking = false;
+    readSensorGyro.detach();
+    readSensorAcc.detach();
 }
 
 void handleLastActivity()
@@ -403,6 +413,10 @@ void handleStartCollecting()
     if (server.hasArg("label")) {
         trackLabel = server.arg("label");
         Serial.println("Start collecting data for " + trackLabel);
+        // Branje gyro senzorja
+        readSensorGyro.attach(1, readGyro);
+        // Branje acc senzorja
+        readSensorAcc.attach(1, readAcc);
         isDataCollecting = true;
     }
 }
@@ -411,7 +425,29 @@ void handleStopCollecting()
 {
     // Handle the "/stop-collecting" endpoint
     Serial.println("Stop collecting data");
+    readSensorGyro.detach();
+    readSensorAcc.detach();
     isDataCollecting = false;
+
+    // Make a PUT request
+    http.begin(client, serverUrl);
+    // Set the Content-Type header to indicate JSON data
+    http.addHeader("Content-Type", "text/plain");
+
+    // Send the PUT request without any JSON data
+    int httpResponseCode = http.PUT("");
+
+    if (httpResponseCode == HTTP_CODE_OK) {
+        // Request successful
+        String response = http.getString();
+        Serial.println("Response: " + response);
+    } else {
+        // Request failed
+        Serial.println("Error: " + http.errorToString(httpResponseCode));
+    }
+
+    // End the request
+    http.end();
 }
 
 void setupWebServer()
@@ -433,7 +469,6 @@ void setupWebServer()
     server.begin();
 }
 
-const char* serverUrl = "http://192.168.4.2:8080/data"; // Replace with your server URL
 // compute the required size
 const size_t CAPACITY = JSON_ARRAY_SIZE(numReadings) + numReadings * JSON_OBJECT_SIZE(3) + 512; // add buffer for the JSON document
 void sendData(char* type)
@@ -477,10 +512,6 @@ void sendData(char* type)
     serializeJson(doc, json);
     Serial.print("serialized json: " + json);
 
-    // Initialize the HTTPClient object
-    HTTPClient http;
-    WiFiClient client;
-
     // Make a GET request
     http.begin(client, serverUrl);
     // Set the Content-Type header to indicate JSON data
@@ -513,13 +544,9 @@ void setup()
 
     // Kalibracija gyro
     calibrateGyro();
-    // Branje gyro senzorja
-    readSensorGyro.attach(1, readGyro);
 
     // Kalibracija acc
     calibrateAcc();
-    // Branje acc senzorja
-    readSensorAcc.attach(1, readAcc);
 
     // Setup WiFi AP
     setupWiFiAP();
@@ -531,17 +558,15 @@ void loop()
     // put your main code here, to run repeatedly:
     server.handleClient();
 
-    if (isTracking || isDataCollecting) {
-        if (readyAccData) {
-            // Serial.println("Sending acc data");
-            sendData("acc");
-            readyAccData = false;
-        }
+    if (readyAccData) {
+        // Serial.println("Sending acc data");
+        sendData("acc");
+        readyAccData = false;
+    }
 
-        if (readyGyroData) {
-            // Serial.println("Sending gyro data");
-            sendData("gyro");
-            readyGyroData = false;
-        }
+    if (readyGyroData) {
+        // Serial.println("Sending gyro data");
+        sendData("gyro");
+        readyGyroData = false;
     }
 }
