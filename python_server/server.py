@@ -48,21 +48,11 @@ conn.close()
 
 #define the types of activities: hoja, tek, kolo.
 types = {
-    0: "hoja",
-    1: "tek",
-    2: "kolo"
+    0: "Walking",
+    1: "Running",
+    2: "Cycling"
 }
 
-def format_data(data): 
-    # TODO format the data so that it can be used by the model
-    # HOW WILL THE DATA LOOK LIKE WHEN IT IS SENT BY THE CLIENT?
-    # Should we add some measures here like mean, std, peaks, etc.? could imporve prediction accuracy
-    # if sending 10 samples at once they can be joined into more "accurate" data
-    # Send same data when "training" and "predicting" the activity
-
-    
-
-    return data
 
 def calculate_average(data, data_type):
     
@@ -132,21 +122,20 @@ def save_data():
 
     # get the data from the request
     data = request.get_json() #maybe only gate data and the label here?
-    # print(data)
-    key = list(data)
-    # print(key[0])
+    keys = list(data) #should be acc or gyro and label (Walking, Running, Cycling)
+
     cache = ""
-    if key[0] == 'acc': 
+    if keys[0] == 'acc': 
         cache = 'DATA_ACC'
-    elif key[0] == 'gyro': 
+    elif keys[0] == 'gyro': 
         cache = 'DATA_GYRO'
     else:
         # errror 
-        print(f"Data type error, key {key} not supoorted")
+        print(f"Data type error, key {keys} not supoorted")
         return 'Data type error', 500
     
     #format the data (avg 10 samples)
-    formated = calculate_average(data, key[0]) #format the data so that it can be used by the model
+    formated = calculate_average(data, keys[0]) #format the data so that it can be used by the model
 
     #add data to global variable
     app.config[cache].append(formated)
@@ -163,24 +152,46 @@ def save_data():
 @app.route('/save-csv', methods=['PUT'])
 @cross_origin()
 def save_to_csv():
-    data = app.config['DATA']
-    if len(data) == 0:
-        return 'No data available', 404
+    data_acc = app.config['DATA_ACC']
+    data_gyro = app.config['DATA_GYRO']
+    if len(data_acc) == 0 or len(data_gyro) == 0:
+        print(f'Length of data_acc: {len(data_acc)}')
+        print(f'Length of data_gyro: {len(data_gyro)}')
+
+        return 'No data for gyro or acc available', 404
 
     current_date = datetime.datetime.now().strftime('%Y-%m-%d')
     current_time = datetime.datetime.now().strftime('%H-%M-%S')
-    label = 'example_label'  # TODO get labelfrom data sent by the client and put it here
+    label = data_acc[0]['label']
 
-    file_name = f'data_{current_date}_{current_time}_{label}.csv'
+    # DEBUG 
+    print(f'Label is: {label}')
+    print(f'Length of data_acc: {len(data_acc)}')
+    print(f'Length of data_gyro: {len(data_gyro)}')
+
+    #make sure that the data is the same length
+    if len(data_acc) != len(data_gyro):
+        print(f'Length of data_acc: {len(data_acc)}')
+        print(f'Length of data_gyro: {len(data_gyro)}')
+        #make the longer list the same length as the shorter one
+        if len(data_acc) > len(data_gyro):
+            data_acc = data_acc[:len(data_gyro)]
+        else:
+            data_gyro = data_gyro[:len(data_acc)]
     
+    data = data_acc + data_gyro  # Merge data from acc and gyro into one list¸
+    #TODO how does this data look like? is it a list of dictionaries? make sure it
+    
+    
+    file_name = f'data_{current_date}_{current_time}_{label}.csv'
+
     with open(file_name, 'w', newline='', encoding='utf-8') as csvfile:
-        fieldnames = data[0].keys() # TODO check if here is the correct format?? 
+        fieldnames = data[0].keys() if data else []  # Check if data is not empty
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(data)
 
     return f'Data saved to {file_name}', 200
-
 # ======================== PREDICTING ACTIVITY ========================
 # section for predicting the activity and saving the data to a database 
 
@@ -190,13 +201,24 @@ def save_to_csv():
 def predict_save():
     global model 
     
-    #get data and format it
-    data = request.get_json() # get data from request body
-    features = format_data(data) # this functions does not work yet
+    # get the data from the request
+    data = request.get_json() #maybe only gate data and the label here?
+    keys = list(data) #should only be acc or gyro no lable here 
+    
+    #DEBUG 
+    print(f"Raw data {data}")
+
+    if keys[0] != 'acc' and keys[0] != 'gyro':
+        # errror 
+        print(f"Data type error, key {keys} not supoorted")
+        return 'Data type error', 500
+    
+    #format the data (avg 10 samples)
+    formated = calculate_average(data, keys[0]) #format the data so that it can be used by the model
 
     # Perform prediction using the model TODO cast to type of activity?? what does the model return?
-    activity = model.predict([features])[0]
-    duration = 0.25 # TODO calculate the duration of the activity or set as static value?
+    activity = model.predict([formated])[0]
+    duration = data['duration'] #get the duration of the activity from the request
     
     # Connect to the database
     conn = get_db()
@@ -232,7 +254,7 @@ def test_database():
         return f'Database connection failed: {str(e)}'
 
 
-# endpoint for getting the last entry from the database if it has been added in the last 10 secondss
+# endpoint for getting the last entry from the database if it has been added in the last 10 seconds
 @app.route('/latest-entry')
 @cross_origin()
 def get_latest_entry():
