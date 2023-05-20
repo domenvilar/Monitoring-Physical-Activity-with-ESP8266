@@ -60,7 +60,46 @@ def format_data(data):
     # if sending 10 samples at once they can be joined into more "accurate" data
     # Send same data when "training" and "predicting" the activity
 
-    return 0 
+    
+
+    return data
+
+def calculate_average(data, data_type):
+    
+    if data_type == 'acc':
+        data_key_prefix = 'acc'
+    elif data_type == 'gyro':
+        data_key_prefix = 'gyro'
+    else:
+        raise ValueError('Invalid data type. Must be either "acc" or "gyro".')
+
+    acc_x_values = []
+    acc_y_values = []
+    acc_z_values = []
+
+    # Extract the acceleration or gyro values from the data
+    data_entries = data[data_type]
+    # print(f"data key is: {data_type}")
+    # print(f"data: {data_entries}")
+    for entry in data_entries:
+        acc_x_values.append(entry['x'])
+        acc_y_values.append(entry['y'])
+        acc_z_values.append(entry['z'])
+
+    # Calculate the average values
+    avg_acc_x = sum(acc_x_values) / len(acc_x_values)
+    avg_acc_y = sum(acc_y_values) / len(acc_y_values)
+    avg_acc_z = sum(acc_z_values) / len(acc_z_values)
+
+    # Return the average values as a dictionary
+    average_data = {
+        f'avg_{data_key_prefix}_x': avg_acc_x,
+        f'avg_{data_key_prefix}_y': avg_acc_y,
+        f'avg_{data_key_prefix}_z': avg_acc_z
+    }
+
+    return average_data
+
 
 #helper function to test the database connection
 def get_db():
@@ -74,15 +113,18 @@ def get_db():
 @app.route('/')
 @cross_origin()
 def hello_world():
-    return 'Hello, World!'
+    # return the temporary array of data 
+    return jsonify(app.config['DATA_ACC'], app.config['DATA_GYRO']), 200
+
 
 # ===================== COLECTING DATA =====================
 # section for collecting data to train the model
 # define the endpoints for saving the data during the training process
 
-app.config['DATA'] = []     # global variable to store the data temporarily
+app.config['DATA_ACC'] = []     # global variable to store the data temporarily
+app.config['DATA_GYRO'] = []     # global variable to store the data temporarily
 
-# this endpoint should be called when tracking is active(TRACK button) the data and the label are sent by ESP board every ?? seconds 
+# this endpoint should be called when tracking is active(TRACK button) the data and the label are sent by ESP board 
 # (hoja: 0 , tek: 1 , kolo: 2)?
 @app.route('/data', methods=['POST'])
 @cross_origin()
@@ -90,11 +132,29 @@ def save_data():
 
     # get the data from the request
     data = request.get_json() #maybe only gate data and the label here?
+    # print(data)
+    key = list(data)
+    # print(key[0])
+    cache = ""
+    if key[0] == 'acc': 
+        cache = 'DATA_ACC'
+    elif key[0] == 'gyro': 
+        cache = 'DATA_GYRO'
+    else:
+        # errror 
+        print(f"Data type error, key {key} not supoorted")
+        return 'Data type error', 500
+    
+    #format the data (avg 10 samples)
+    formated = calculate_average(data, key[0]) #format the data so that it can be used by the model
 
-    formated = format_data(data) #format the data so that it can be used by the model
+    #add data to global variable
+    app.config[cache].append(formated)
 
-    # add the data to the global variable
-    app.config['DATA'].append(formated)
+    #print DEBUG
+    # print(f"data type: {key}")
+    # print(f"Raw data {data}")
+    # print(f"formated data: {formated}")
 
     return 'Data saved successfully', 200
 
